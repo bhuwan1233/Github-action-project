@@ -13,14 +13,20 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      - name: Check Java
+        run: java -version
+
+      - name: Check Maven
+        run: mvn -version
 
       - name: Build with Maven
         run: mvn compile
@@ -29,30 +35,38 @@ jobs:
   security-check:
     runs-on: self-hosted
     needs: compile
+
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Trivy
+        shell: powershell
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
+          $trivyVersion = "0.74.0"
+          $url = "https://github.com/aquasecurity/trivy/releases/download/v$trivyVersion/trivy_${trivyVersion}_Windows-64bit.zip"
+          $zip = "$env:TEMP\trivy.zip"
+          $installDir = "C:\trivy"
 
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-            | gpg --dearmor \
-            | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          Invoke-WebRequest -Uri $url -OutFile $zip
 
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
-            | sudo tee /etc/apt/sources.list.d/trivy.list
+          if (Test-Path $installDir) {
+              Remove-Item $installDir -Recurse -Force
+          }
 
-          sudo apt-get update
-          sudo apt-get install -y trivy
+          New-Item -ItemType Directory -Path $installDir | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $installDir -Force
+
+          $env:Path += ";$installDir"
+
+          & "$installDir\trivy.exe" --version
 
       - name: Trivy filesystem scan
+        shell: powershell
         run: |
           trivy fs --format json -o fs-report.json .
 
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
